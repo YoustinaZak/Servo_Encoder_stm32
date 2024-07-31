@@ -54,6 +54,7 @@ Alcd_t LCD_Display={
 	};
 
 char degree_str[20];
+volatile static int32_t encoder_count=0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -98,11 +99,11 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_TIM3_Init();  //pwm
-  MX_TIM4_Init();  //encoder
+  MX_TIM3_Init();
+ // MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   Alcd_Init(&LCD_Display, 2, 0);     //start display
-  HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);                //counter start for encoder mode CH3 and CH4
+  //HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);                //counter start for encoder mode CH3 and CH4
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);     //output to servo
   __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1, 1500);
   //HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_1);    //start Output Compare
@@ -116,16 +117,17 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  uint8_t encoder_count = __HAL_TIM_GET_COUNTER(&htim4);  //EL COUNTER HY3ED ANA MSHEET KAM STEP
-      //sprintf(degree_str,"You're at: %d",encoder_count);
-      //Alcd_PutAt_n(&LCD_Display, 0, 0, degree_str, strlen(degree_str));
+	  //uint8_t encoder_count = __HAL_TIM_GET_COUNTER(&htim4);  //EL COUNTER HY3ED ANA MSHEET KAM STEP
+
       float degrees = ((float)encoder_count / counts_per_revolution )* 180.0; //every step = 9deg
       uint32_t pwm_val = degrees_to_pwm(degrees);
-      sprintf(degree_str,"You're at: %d",(int)degrees);
+      sprintf(degree_str,"You're at: %d",encoder_count);
+
       Alcd_PutAt_n(&LCD_Display, 0, 0, degree_str, strlen(degree_str));
       __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1, pwm_val);
       HAL_Delay(1000);
       Alcd_Clear(&LCD_Display);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -287,6 +289,7 @@ static void MX_TIM4_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
@@ -294,6 +297,16 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pins : PB14 PB15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_14|GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
@@ -303,6 +316,51 @@ static void MX_GPIO_Init(void)
 uint32_t degrees_to_pwm(float val){  //search
 
 	return ((val *1000)/180)+1000 ;
+}
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	sprintf(degree_str,"interrupt: %d",encoder_count);
+	//Alcd_PutAt_n(&LCD_Display, 0, 0, degree_str, strlen(degree_str));
+	static uint8_t prev_stateA =0;
+	uint8_t current_stateA = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_14);
+	uint8_t current_stateB = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_15);
+
+	  if (GPIO_Pin == GPIO_PIN_14)  //in contact with pin A // A0, AB, B0 ..... 0B,AB,A0
+	  {
+	    if (current_stateA != prev_stateA) //lw el A 7alto et8yaret
+	    {
+	      if (current_stateA != current_stateB)  //lw el A mo5tlf 3n el B   //clkwise
+	      {
+	        encoder_count++;  //yb2a ana blef l odaam
+	      }
+	      else
+	      {
+	        encoder_count--;
+	      }
+	      prev_stateA = current_stateA;
+	    }
+	  }
+
+	  else if (GPIO_Pin == GPIO_PIN_15)
+	  {
+	    if (current_stateA != prev_stateA)
+	    {
+	      if (current_stateA == current_stateB)    //counterclkwise
+	      {
+	        encoder_count++;
+	      }
+	      else
+	      {
+	        encoder_count--;
+	      }
+	      prev_stateA = current_stateA;
+	    }
+	  }
+	  if(encoder_count==20){
+		  encoder_count=0;
+	  }
+	  if(encoder_count==-1){
+		  encoder_count=19;
+	  }
 }
 /* USER CODE END 4 */
 
